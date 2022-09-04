@@ -1,0 +1,83 @@
+name: QA - Deploy daily-rental-ui to Amazon ECS
+on:
+    push:
+        branches:
+            - "qa"
+    workflow_dispatch:
+        inputs:
+            tags:
+                required: false
+                default: 'Manually triggered'
+                description: 'Comment'
+
+jobs:
+    deploy:
+        name: Deploy
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v2
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v1
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: eu-central-1
+
+            - name: Login to Amazon ECR
+              id: login-ecr
+              uses: aws-actions/amazon-ecr-login@v1
+
+            - name: Build, tag, and push image to Amazon ECR
+              id: qa-build-image
+              env:
+                  ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+                  ECR_REPOSITORY: qa-swapp-daily-rental-ui
+                  IMAGE_TAG: ${{ github.sha }}
+                  NEXT_PUBLIC_GA_TRACKING_ID: null
+                  NEXT_PUBLIC_GMAPS_API_KEY: ${{ secrets.NEXT_PUBLIC_GMAPS_API_KEY }}
+                  NEXT_PUBLIC_BASE_URL: https://qa.joinswapp.com
+                  NEXT_PUBLIC_IMAGEX_URL: https://qa-swapp-rental.imgix.net
+                  NEXT_PUBLIC_BYPASS_CAREEM_PAY: true
+                  NEXT_PUBLIC_PRODUCT_SELECTOR_LINK: https://identity.qa.careem-engineering.com/authorize?client_id=0a2d2f09-97cb-40e8-8e53-bfabc36db36f&redirect_uri=https://qa.joinswapp.com/auth/careem/callback%3Ftarget%3DproductSelector&response_type=code
+              run: |
+                  docker image build --build-arg NEXT_PUBLIC_GA_TRACKING_ID=$NEXT_PUBLIC_GA_TRACKING_ID --build-arg NEXT_PUBLIC_GMAPS_API_KEY=$NEXT_PUBLIC_GMAPS_API_KEY --build-arg NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL --build-arg NEXT_PUBLIC_IMAGEX_URL=$NEXT_PUBLIC_IMAGEX_URL --build-arg NEXT_PUBLIC_BYPASS_CAREEM_PAY=$NEXT_PUBLIC_BYPASS_CAREEM_PAY --build-arg NEXT_PUBLIC_PRODUCT_SELECTOR_LINK=$NEXT_PUBLIC_PRODUCT_SELECTOR_LINK -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+                  docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+                  echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+            - name: Fill in the new image ID in the Amazon ECS task definition
+              id: qa-task-def
+              uses: aws-actions/amazon-ecs-render-task-definition@v1
+              with:
+                  task-definition: .aws/qa-task-definition.json
+                  container-name: automatic-swapp-daily-rental-ui
+                  image: ${{ steps.qa-build-image.outputs.image }}
+
+            - name: Deploy Amazon ECS task definition
+              uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+              with:
+                  task-definition: ${{ steps.qa-task-def.outputs.task-definition }}
+                  service: manual-qa-swapp-daily-rental-ui-fg
+                  cluster: qa-ecs-cluster
+                  wait-for-service-stability: false
+
+            - name: Slack Notify
+              if: ${{ success() }}
+              uses: rtCamp/action-slack-notify@v2
+              env:
+                  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+                  SLACK_USERNAME: "DeployBot - Daily Rental UI - QA"
+                  SLACK_ICON_EMOJI: ":car:"
+                  SLACK_COLOR: "warning"
+                  SLACK_MESSAGE: "Deployment of version ${{ github.run_number}}.${{ github.sha}} has been succeeded!"
+            
+            - name: Create pull request to PROD
+              if: ${{ success() }}
+              uses: repo-sync/pull-request@v2
+              with:
+                  source_branch: "qa"
+                  destination_branch: "main"
+                  pr_title: "PROD"
+                  github_token: ${{ secrets.GITHUB_TOKEN }}

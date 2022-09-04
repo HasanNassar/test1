@@ -1,0 +1,73 @@
+name: PROD - Deploy daily-rental-ui to Amazon ECS
+on:
+    push:
+        branches:
+            - "main"
+    workflow_dispatch:
+        inputs:
+            tags:
+                required: false
+                default: 'Manually triggered'
+                description: 'Comment'
+
+jobs:
+    deploy:
+        name: Deploy
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v2
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v1
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: eu-central-1
+
+            - name: Login to Amazon ECR
+              id: login-ecr
+              uses: aws-actions/amazon-ecr-login@v1
+
+            - name: Build, tag, and push image to Amazon ECR
+              id: prod-build-image
+              env:
+                  ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+                  ECR_REPOSITORY: prod-swapp-daily-rental-ui
+                  IMAGE_TAG: ${{ github.sha }}
+                  NEXT_PUBLIC_GA_TRACKING_ID: ${{ secrets.NEXT_PUBLIC_GA_TRACKING_ID }}
+                  NEXT_PUBLIC_GMAPS_API_KEY: ${{ secrets.NEXT_PUBLIC_GMAPS_API_KEY }}
+                  NEXT_PUBLIC_BASE_URL: https://joinswapp.com
+                  NEXT_PUBLIC_IMAGEX_URL: https://prod-swapp-rental.imgix.net
+                  NEXT_PUBLIC_PRODUCT_SELECTOR_LINK: https://identity.careem.com/authorize?client_id=2563d96e-2480-4657-b950-c653cc280d27&response_type=code&redirect_uri=https%3A%2F%2Fjoinswapp.com%2Fauth%2Fcareem%2Fcallback%3Ftarget%3DproductSelector&response_type=code
+              run: |
+                  docker image build --build-arg NEXT_PUBLIC_GA_TRACKING_ID=$NEXT_PUBLIC_GA_TRACKING_ID --build-arg NEXT_PUBLIC_GMAPS_API_KEY=$NEXT_PUBLIC_GMAPS_API_KEY --build-arg NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL --build-arg NEXT_PUBLIC_IMAGEX_URL=$NEXT_PUBLIC_IMAGEX_URL --build-arg NEXT_PUBLIC_PRODUCT_SELECTOR_LINK=$NEXT_PUBLIC_PRODUCT_SELECTOR_LINK -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+                  docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+                  echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+            - name: Fill in the new image ID in the Amazon ECS task definition
+              id: prod-task-def
+              uses: aws-actions/amazon-ecs-render-task-definition@v1
+              with:
+                  task-definition: .aws/prod-task-definition.json
+                  container-name: automatic-swapp-daily-rental-ui
+                  image: ${{ steps.prod-build-image.outputs.image }}
+
+            - name: Deploy Amazon ECS task definition
+              uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+              with:
+                  task-definition: ${{ steps.prod-task-def.outputs.task-definition }}
+                  service: manual-prod-swapp-daily-rental-ui-fg
+                  cluster: prod-ecs-cluster
+                  wait-for-service-stability: false
+
+            - name: Slack Notify
+              if: ${{ success() }}
+              uses: rtCamp/action-slack-notify@v2
+              env:
+                  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+                  SLACK_USERNAME: "DeployBot - Daily Rental UI - PROD"
+                  SLACK_ICON_EMOJI: ":car:"
+                  SLACK_COLOR: "danger"
+                  SLACK_MESSAGE: "Deployment of version ${{ github.run_number}}.${{ github.sha}} has been succeeded!"

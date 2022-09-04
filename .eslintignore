@@ -1,0 +1,10 @@
+**/node_modules/*
+**/out/*
+**/.next/*
+node_modules/*
+/public
+/build
+jest.config.js
+*.config.js
+*.yml
+cypress
