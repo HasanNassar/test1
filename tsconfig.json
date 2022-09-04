@@ -1,0 +1,38 @@
+{
+    "compilerOptions": {
+        "strict": true,
+        "incremental": true,
+        "target": "es5",
+        "lib": ["dom", "dom.iterable", "esnext"],
+        "allowJs": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        "forceConsistentCasingInFileNames": true,
+        "module": "esnext",
+        "moduleResolution": "node",
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noEmit": true,
+        "noUnusedParameters": false,
+        "noUnusedLocals": false,
+        "noImplicitAny": false,
+        "jsx": "preserve",
+        "noImplicitReturns": true,
+        "baseUrl": ".",
+        "types": ["cypress"],
+        "paths": {
+            "@components/*": ["src/components/*"],
+            "@global/*": ["src/components/global/*"],
+            "@modules/*": ["src/componens/modules/*"],
+            "@layout/*": ["src/components/layout/*"],
+            "@assets/*": ["src/assets/*"],
+            "@util/*": ["src/util/*"],
+            "@contexts/*": ["src/contexts/*"],
+            "@hooks/*": ["src/hooks/*"],
+            "@service/*": ["src/service/*"]
+        }
+    },
+    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "src/components/modules/Calendar/Datepicker.js"],
+    "exclude": ["node_modules", ".next", "out", "config.*.js", "cypress"]
+}

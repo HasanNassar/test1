@@ -1,0 +1,43 @@
+name: DEV - Run CI check for every PR that targets develop
+on:
+    pull_request:
+        branches:
+            - "develop"
+
+jobs:
+    test:
+        name: CI check
+        runs-on: ubuntu-latest
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v2
+
+            -   name: Check cache
+                uses: actions/cache@v2
+                with:
+                    path: 'node_modules'
+                    key: ${{ runner.os }}-modules-${{ hashFiles('yarn.lock') }}
+
+            -   name: Install dependencies
+                run: yarn install
+
+            -   name: Run linter
+                run: yarn lint
+
+            -   name: Build a temporary image to run Grype's CVE scan on it
+                id: dev-build-image
+                env:
+                    ECR_REGISTRY: container-ci
+                    ECR_REPOSITORY: dev-swapp-daily-rental-ui
+                    IMAGE_TAG: ${{ github.sha}}
+                run: |
+                    docker image build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+                    echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+            -   name: Scan image
+                uses: anchore/scan-action@v3
+                with:
+                    fail-build: false
+                    debug: true
+                    image: ${{ steps.dev-build-image.outputs.image }}
+                    severity-cutoff: 'high'
